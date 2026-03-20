@@ -50,7 +50,7 @@ export default function FuelPrices() {
               {label}
             </div>
             <p className="font-condensed font-black text-4xl md:text-5xl text-white leading-none tracking-tight mb-1">
-              {loading ? "—" : (prices?.[key] ?? "—")}
+              {loading ? "..." : (prices?.[key] != null ? `₺${Number(prices[key]).toFixed(2)}` : "—")}
             </p>
             <p className="text-[11px] text-white/22 tracking-wide">₺ / Litre · KDV dahil</p>
 

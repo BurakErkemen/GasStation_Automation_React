@@ -7,29 +7,46 @@ export function useFuelPrices() {
   const [previousPrices, setPreviousPrices] = useState(null);
   const [updatedAt,      setUpdatedAt]      = useState(null);
   const [loading,        setLoading]        = useState(true);
+  const [error,          setError]          = useState(null);
 
   useEffect(() => {
     const ref = doc(db, "settings", "fuelPrices");
-    const unsub = onSnapshot(ref, (snap) => {
-      if (snap.exists()) {
-        const data = snap.data();
-        setPrices({
-          benzin:     data.benzin     ?? "—",
-          dizel:      data.dizel      ?? "—",
-          eurodiesel: data.eurodiesel ?? "—",
-          lpg:        data.lpg        ?? "—",
-        });
-        setPreviousPrices(data.previousPrices || null);
-        setUpdatedAt(
-          data.updatedAt
-            ? new Date(data.updatedAt.toDate()).toLocaleString("tr-TR")
-            : null
-        );
+
+    const unsub = onSnapshot(ref,
+      (snap) => {
+        if (snap.exists()) {
+          const data = snap.data();
+          setPrices({
+            benzin:     data.benzin     ?? null,
+            dizel:      data.dizel      ?? null,
+            eurodiesel: data.eurodiesel ?? null,
+            lpg:        data.lpg        ?? null,
+          });
+          setPreviousPrices(data.previousPrices || null);
+          setUpdatedAt(
+            data.updatedAt
+              ? new Date(data.updatedAt.toDate()).toLocaleString("tr-TR")
+              : null
+          );
+        } else {
+          // Firestore'da doküman yok
+          setPrices(null);
+          setPreviousPrices(null);
+          setUpdatedAt(null);
+        }
+        setLoading(false);
+        setError(null);
+      },
+      (err) => {
+        // Bağlantı hatası
+        console.error("useFuelPrices:", err);
+        setError(err.message);
+        setLoading(false);
       }
-      setLoading(false);
-    });
+    );
+
     return () => unsub();
   }, []);
 
-  return { prices, previousPrices, updatedAt, loading };
+  return { prices, previousPrices, updatedAt, loading, error };
 }

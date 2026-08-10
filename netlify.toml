@@ -1,0 +1,15 @@
+[build]
+  base = "belen-akaryakit"
+  command = "npm run build"
+  publish = "dist"
+
+[build.environment]
+  NODE_VERSION = "20"
+
+# React Router (BrowserRouter) kullanıldığı için tüm path'leri index.html'e
+# yönlendiriyoruz; yoksa /admin, /admin/login gibi rotalara doğrudan gidildiğinde
+# veya sayfa yenilendiğinde Netlify "Sayfa bulunmadı" 404 döner.
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200

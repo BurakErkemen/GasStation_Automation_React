@@ -5,6 +5,8 @@ import {
   query, orderBy
 } from "firebase/firestore";
 import { db } from "../../lib/firebase";
+import { exportListToExcel, printListAsPDF, exportWorkbookToExcel, printDocument } from "../../utils/listExport";
+import ExportButtons from "../../components/admin/ExportButtons";
 
 const CATEGORIES = [
   "Akaryakıt", "Market / Gıda", "Temizlik",
@@ -132,6 +134,38 @@ export default function Suppliers() {
     s.phone?.includes(search)
   );
 
+  function exportExcel() {
+    exportListToExcel("Tedarikciler", "Tedarikçiler", [
+      { header: "Firma Adı",       value: s => s.name,                                     width: 24 },
+      { header: "Kategori",        value: s => s.category || "—",                          width: 18 },
+      { header: "Telefon",         value: s => s.phone || "—",                             width: 16 },
+      { header: "Fatura Toplamı (₺)", value: s => getSupplierStats(s.name).invoiceTotal,   width: 18 },
+      { header: "Ödenen (₺)",      value: s => getSupplierStats(s.name).totalPaid,         width: 14 },
+      { header: "Bekleyen (₺)",    value: s => getSupplierStats(s.name).totalPending,      width: 14 },
+    ], filtered);
+  }
+
+  function exportPDF() {
+    const totalPending = filtered.reduce((s, x) => s + getSupplierStats(x.name).totalPending, 0);
+    printListAsPDF({
+      title: "Tedarikçiler — Ödeme Durumu",
+      subtitle: search ? `Arama: "${search}"` : undefined,
+      columns: [
+        { header: "Firma Adı",    value: s => s.name },
+        { header: "Kategori",     value: s => s.category || "—" },
+        { header: "Telefon",      value: s => s.phone || "—" },
+        { header: "Fatura (₺)",   value: s => fmt(getSupplierStats(s.name).invoiceTotal), align: "right" },
+        { header: "Ödenen (₺)",   value: s => fmt(getSupplierStats(s.name).totalPaid),    align: "right" },
+        { header: "Bekleyen (₺)", value: s => fmt(getSupplierStats(s.name).totalPending), align: "right" },
+      ],
+      rows: filtered,
+      summary: [
+        { value: "TOPLAM" }, { value: "" }, { value: "" }, { value: "" }, { value: "" },
+        { value: `₺${fmt(totalPending)}`, align: "right" },
+      ],
+    });
+  }
+
   // ── FORM ──────────────────────────────────────────
   if (view === "form") {
     return (
@@ -256,6 +290,44 @@ export default function Suppliers() {
     if (!supplier) return null;
     const { supplierPayments, supplierInvoices, totalPaid, totalPending, invoiceTotal, balance } = getSupplierStats(supplier.name);
 
+    const invoiceColumns = [
+      { header: "Fatura No", value: i => i.invoiceNo,                                  width: 14 },
+      { header: "Tarih",     value: i => i.date,                                       width: 12 },
+      { header: "Tutar (₺)", value: i => Number(i.total) || 0,                         width: 14, align: "right" },
+      { header: "Durum",     value: i => i.status === "paid" ? "Ödendi" : "Bekliyor",  width: 12 },
+    ];
+    const paymentColumns = [
+      { header: "Tarih",     value: p => p.date,                    width: 12 },
+      { header: "Açıklama",  value: p => p.description || "—",      width: 24 },
+      { header: "Yöntem",    value: p => p.method,                  width: 14 },
+      { header: "Tutar (₺)", value: p => Number(p.amount) || 0,     width: 14, align: "right" },
+      { header: "Durum",     value: p => p.status === "completed" ? "Tamamlandı" : p.status === "pending" ? "Bekliyor" : "İptal", width: 14 },
+    ];
+
+    function exportDetailExcel() {
+      exportWorkbookToExcel(`Tedarikci_${supplier.name}`, [
+        { name: "Faturalar", columns: invoiceColumns, rows: supplierInvoices },
+        { name: "Ödemeler",  columns: paymentColumns, rows: supplierPayments },
+      ]);
+    }
+
+    function exportDetailPDF() {
+      printDocument({
+        title: `Tedarikçi: ${supplier.name}`,
+        subtitle: [supplier.category, supplier.phone].filter(Boolean).join(" · ") || undefined,
+        info: [
+          { label: "Fatura Toplamı", value: `₺${fmt(invoiceTotal)}` },
+          { label: "Ödenen",         value: `₺${fmt(totalPaid)}` },
+          { label: "Bekleyen",       value: `₺${fmt(totalPending)}` },
+          { label: "Bakiye",         value: `₺${fmt(balance)}` },
+        ],
+        sections: [
+          { heading: "Bize Kesilen Faturalar", columns: invoiceColumns.map(c => ({ ...c, value: row => typeof c.value(row) === "number" ? fmt(c.value(row)) : c.value(row) })), rows: supplierInvoices },
+          { heading: "Ödeme Geçmişi", columns: paymentColumns.map(c => ({ ...c, value: row => typeof c.value(row) === "number" ? fmt(c.value(row)) : c.value(row) })), rows: supplierPayments },
+        ],
+      });
+    }
+
     return (
       <div className="max-w-3xl w-full">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between mb-6">
@@ -269,6 +341,7 @@ export default function Suppliers() {
             </p>
           </div>
           <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
+            <ExportButtons onExcel={exportDetailExcel} onPdf={exportDetailPDF} />
             <button
               onClick={() => openEdit(supplier)}
               className="text-sm text-opblue border border-opblue/30 px-4 py-2 rounded-lg hover:bg-opblue/5 w-full sm:w-auto"
@@ -423,12 +496,15 @@ export default function Suppliers() {
           <h1 className="font-condensed font-black text-2xl sm:text-3xl uppercase text-gray-800">Tedarikçiler</h1>
           <p className="text-sm text-gray-500 mt-1">{suppliers.length} kayıtlı tedarikçi</p>
         </div>
-        <button
-          onClick={openNew}
-          className="bg-opblue text-white text-sm font-semibold px-4 py-2.5 rounded-lg hover:opacity-90 w-full sm:w-auto"
-        >
-          + Yeni Tedarikçi
-        </button>
+        <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
+          <ExportButtons onExcel={exportExcel} onPdf={exportPDF} />
+          <button
+            onClick={openNew}
+            className="bg-opblue text-white text-sm font-semibold px-4 py-2.5 rounded-lg hover:opacity-90 w-full sm:w-auto"
+          >
+            + Yeni Tedarikçi
+          </button>
+        </div>
       </div>
 
       <div className="mb-4">

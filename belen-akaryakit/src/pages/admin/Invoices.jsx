@@ -5,6 +5,8 @@ import {
   query, orderBy
 } from "firebase/firestore";
 import { db } from "../../lib/firebase";
+import { exportListToExcel, printListAsPDF, exportWorkbookToExcel } from "../../utils/listExport";
+import ExportButtons from "../../components/admin/ExportButtons";
 
 // ── Yardımcı bileşenler ───────────────────────────────
 function Field({ label, children }) {
@@ -76,17 +78,27 @@ const UNITS = ["Adet", "Litre", "Kg", "Hizmet"];
 // ── PDF Baskı stili ───────────────────────────────────
 const printStyles = `
   @media print {
+    @page { margin: 12mm; }
     body * { visibility: hidden !important; }
     #invoice-print, #invoice-print * { visibility: visible !important; }
     #invoice-print {
       position: fixed !important;
       top: 0; left: 0;
-      width: 100%; height: 100%;
+      width: 100% !important;
+      height: auto !important;
       background: white;
-      padding: 40px;
+      padding: 0 !important;
+      margin: 0 !important;
+      border: none !important;
+      border-radius: 0 !important;
+      box-shadow: none !important;
       font-family: sans-serif;
       color: #111;
+      box-sizing: border-box;
     }
+    #invoice-print .overflow-x-auto { overflow: visible !important; }
+    #invoice-print table { width: 100% !important; min-width: 0 !important; table-layout: fixed; }
+    #invoice-print table td, #invoice-print table th { word-break: break-word; }
     .no-print { display: none !important; }
   }
 `;
@@ -180,6 +192,41 @@ export default function Invoices() {
 
   const totalPending = invoices.filter(i => i.status === "pending").reduce((s, i) => s + (Number(i.total) || 0), 0);
   const totalPaid = invoices.filter(i => i.status === "paid").reduce((s, i) => s + (Number(i.total) || 0), 0);
+
+  const invAmount = inv => inv.total || calcInvoice(inv.items || [], inv.kdvRate).total;
+
+  function exportExcel() {
+    exportListToExcel("Faturalar", "Faturalar", [
+      { header: "Fatura No", value: i => i.invoiceNo,                              width: 14 },
+      { header: "Tarih",     value: i => i.date,                                   width: 12 },
+      { header: "Müşteri",   value: i => i.customerName || "—",                    width: 24 },
+      { header: "Tutar (₺)", value: i => invAmount(i),                             width: 14 },
+      { header: "Durum",     value: i => i.status === "paid" ? "Ödendi" : "Bekliyor", width: 12 },
+    ], filtered);
+  }
+
+  function exportPDF() {
+    const total = filtered.reduce((s, i) => s + invAmount(i), 0);
+    printListAsPDF({
+      title: "Faturalar",
+      subtitle: [
+        search && `Arama: "${search}"`,
+        filter !== "all" && (filter === "paid" ? "Ödendi" : "Bekliyor"),
+      ].filter(Boolean).join(" · ") || undefined,
+      columns: [
+        { header: "Fatura No", value: i => i.invoiceNo },
+        { header: "Tarih",     value: i => i.date },
+        { header: "Müşteri",   value: i => i.customerName || "—" },
+        { header: "Tutar (₺)", value: i => fmt(invAmount(i)), align: "right" },
+        { header: "Durum",     value: i => i.status === "paid" ? "Ödendi" : "Bekliyor" },
+      ],
+      rows: filtered,
+      summary: [
+        { value: "TOPLAM" }, { value: "" }, { value: "" },
+        { value: `₺${fmt(total)}`, align: "right" }, { value: "" },
+      ],
+    });
+  }
 
   // ── FORM ──────────────────────────────────────────
   if (view === "form" && form) {
@@ -386,6 +433,31 @@ export default function Invoices() {
     if (!inv) return null;
     const calc = calcInvoice(inv.items || [], inv.kdvRate);
 
+    function exportDetailExcel() {
+      exportWorkbookToExcel(`Fatura_${inv.invoiceNo}`, [
+        {
+          name: "Fatura",
+          aoa: [
+            ["Fatura No",  inv.invoiceNo],
+            ["Tarih",      inv.date],
+            ["Müşteri",    inv.customerName || "—"],
+            ["Durum",      inv.status === "paid" ? "Ödendi" : "Bekliyor"],
+            [],
+            ["Açıklama", "Birim", "Miktar", "Birim Fiyat (₺)", "Tutar (₺)"],
+            ...(inv.items || []).map(i => [
+              i.description, i.unit, Number(i.qty) || 0, Number(i.price) || 0,
+              (Number(i.qty) || 0) * (Number(i.price) || 0),
+            ]),
+            [],
+            ["Ara Toplam (₺)", calc.subtotal],
+            [`KDV (%${inv.kdvRate}) (₺)`, calc.kdv],
+            ["Genel Toplam (₺)", calc.total],
+          ],
+          cols: [{ wch: 28 }, { wch: 14 }, { wch: 10 }, { wch: 16 }, { wch: 14 }],
+        },
+      ]);
+    }
+
     return (
       <div className="max-w-3xl w-full">
         <style>{printStyles}</style>
@@ -400,6 +472,12 @@ export default function Invoices() {
             </p>
           </div>
           <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
+            <button
+              onClick={exportDetailExcel}
+              className="text-sm text-gray-600 border border-gray-200 px-4 py-2 rounded-lg hover:bg-gray-50 w-full sm:w-auto"
+            >
+              ⬇ Excel
+            </button>
             <button
               onClick={() => window.print()}
               className="text-sm text-white bg-opblue border border-opblue px-4 py-2 rounded-lg hover:opacity-90 w-full sm:w-auto"
@@ -459,11 +537,11 @@ export default function Invoices() {
             <table className="w-full min-w-[700px] text-sm mb-6">
               <thead>
                 <tr className="border-b-2 border-gray-200">
-                  <th className="text-left py-2 text-xs font-bold uppercase tracking-wider text-gray-400">Açıklama</th>
-                  <th className="text-center py-2 text-xs font-bold uppercase tracking-wider text-gray-400">Birim</th>
-                  <th className="text-right py-2 text-xs font-bold uppercase tracking-wider text-gray-400">Miktar</th>
-                  <th className="text-right py-2 text-xs font-bold uppercase tracking-wider text-gray-400">Birim Fiyat</th>
-                  <th className="text-right py-2 text-xs font-bold uppercase tracking-wider text-gray-400">Tutar</th>
+                  <th className="w-[40%] text-left py-2 text-xs font-bold uppercase tracking-wider text-gray-400">Açıklama</th>
+                  <th className="w-[15%] text-center py-2 text-xs font-bold uppercase tracking-wider text-gray-400">Birim</th>
+                  <th className="w-[13%] text-right py-2 text-xs font-bold uppercase tracking-wider text-gray-400">Miktar</th>
+                  <th className="w-[16%] text-right py-2 text-xs font-bold uppercase tracking-wider text-gray-400">Birim Fiyat</th>
+                  <th className="w-[16%] text-right py-2 text-xs font-bold uppercase tracking-wider text-gray-400">Tutar</th>
                 </tr>
               </thead>
               <tbody>
@@ -533,12 +611,15 @@ export default function Invoices() {
           <h1 className="font-condensed font-black text-2xl sm:text-3xl uppercase text-gray-800">Faturalar</h1>
           <p className="text-sm text-gray-500 mt-1">{invoices.length} fatura</p>
         </div>
-        <button
-          onClick={openNew}
-          className="bg-opblue text-white text-sm font-semibold px-4 py-2.5 rounded-lg hover:opacity-90 w-full sm:w-auto"
-        >
-          + Yeni Fatura
-        </button>
+        <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
+          <ExportButtons onExcel={exportExcel} onPdf={exportPDF} />
+          <button
+            onClick={openNew}
+            className="bg-opblue text-white text-sm font-semibold px-4 py-2.5 rounded-lg hover:opacity-90 w-full sm:w-auto"
+          >
+            + Yeni Fatura
+          </button>
+        </div>
       </div>
 
       {/* Özet kartlar */}

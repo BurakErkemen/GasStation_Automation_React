@@ -5,6 +5,8 @@ import {
   query, orderBy
 } from "firebase/firestore";
 import { db } from "../../lib/firebase";
+import { exportListToExcel, printListAsPDF, exportWorkbookToExcel, printDocument } from "../../utils/listExport";
+import ExportButtons from "../../components/admin/ExportButtons";
 
 // ── Sabitler ──────────────────────────────────────────
 const PAYMENT_TYPES = [
@@ -76,6 +78,7 @@ export default function Payments() {
   const [view, setView] = useState("list");
   const [form, setForm] = useState(emptyForm);
   const [editId, setEditId] = useState(null);
+  const [detailId, setDetailId] = useState(null);
   const [saving, setSaving] = useState(false);
   const [search, setSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState("all");
@@ -99,6 +102,7 @@ export default function Payments() {
 
   function openNew() { setForm(emptyForm); setEditId(null); setView("form"); }
   function openEdit(p) { setForm({ ...p }); setEditId(p.id); setView("form"); }
+  function openDetail(p) { setDetailId(p.id); setView("detail"); }
 
   async function handleSave() {
     setSaving(true);
@@ -161,6 +165,45 @@ export default function Payments() {
   const monthTotal = payments
     .filter(p => p.date?.startsWith(thisMonth) && p.status === "completed")
     .reduce((s, p) => s + (Number(p.amount) || 0), 0);
+
+  function exportExcel() {
+    exportListToExcel("Odemeler", "Ödemeler", [
+      { header: "Tarih",       value: p => p.date,                    width: 12 },
+      { header: "Tür",         value: p => typeInfo(p.type).label,    width: 20 },
+      { header: "Alıcı",       value: p => p.recipient || "—",        width: 22 },
+      { header: "Açıklama",    value: p => p.description || "—",      width: 24 },
+      { header: "Ref No",      value: p => p.refNo || "—",            width: 14 },
+      { header: "Yöntem",      value: p => methodInfo(p.method).label,width: 16 },
+      { header: "Tutar (₺)",   value: p => Number(p.amount) || 0,     width: 14 },
+      { header: "Durum",       value: p => statusInfo(p.status).label,width: 14 },
+    ], filtered);
+  }
+
+  function exportPDF() {
+    const total = filtered.reduce((s, p) => s + (Number(p.amount) || 0), 0);
+    printListAsPDF({
+      title: "Ödemeler",
+      subtitle: [
+        search && `Arama: "${search}"`,
+        typeFilter !== "all" && typeInfo(typeFilter).label,
+        statusFilter !== "all" && statusInfo(statusFilter).label,
+      ].filter(Boolean).join(" · ") || undefined,
+      columns: [
+        { header: "Tarih",    value: p => p.date },
+        { header: "Tür",      value: p => typeInfo(p.type).label },
+        { header: "Alıcı",    value: p => p.recipient || "—" },
+        { header: "Açıklama", value: p => p.description || "—" },
+        { header: "Yöntem",   value: p => methodInfo(p.method).label },
+        { header: "Tutar (₺)",value: p => fmt(p.amount), align: "right" },
+        { header: "Durum",    value: p => statusInfo(p.status).label },
+      ],
+      rows: filtered,
+      summary: [
+        { value: "TOPLAM" }, { value: "" }, { value: "" }, { value: "" }, { value: "" },
+        { value: `₺${fmt(total)}`, align: "right" }, { value: "" },
+      ],
+    });
+  }
 
   // ── FORM ──────────────────────────────────────────
   if (view === "form") {
@@ -342,6 +385,111 @@ export default function Payments() {
     );
   }
 
+  // ── DETAY ─────────────────────────────────────────
+  if (view === "detail") {
+    const p = payments.find(x => x.id === detailId);
+    if (!p) return null;
+
+    function exportDetailExcel() {
+      exportWorkbookToExcel(`Odeme_${p.refNo || p.id}`, [{
+        name: "Ödeme",
+        aoa: [
+          ["Tarih",          p.date],
+          ["Tür",            typeInfo(p.type).label],
+          ["Alıcı",          p.recipient || "—"],
+          ["Açıklama",       p.description || "—"],
+          ["Referans No",    p.refNo || "—"],
+          ["Vade Tarihi",    p.dueDate || "—"],
+          ["Yöntem",         methodInfo(p.method).label],
+          ["Tutar (₺)",      Number(p.amount) || 0],
+          ["Durum",          statusInfo(p.status).label],
+          ["Notlar",         p.notes || "—"],
+        ],
+        cols: [{ wch: 16 }, { wch: 28 }],
+      }]);
+    }
+
+    function exportDetailPDF() {
+      printDocument({
+        title: `Ödeme — ${p.recipient || typeInfo(p.type).label}`,
+        subtitle: `${p.date} · ${statusInfo(p.status).label}`,
+        info: [
+          { label: "Tür",         value: typeInfo(p.type).label },
+          { label: "Alıcı",       value: p.recipient || "—" },
+          { label: "Açıklama",    value: p.description || "—" },
+          { label: "Referans No", value: p.refNo || "—" },
+          { label: "Vade Tarihi", value: p.dueDate || "—" },
+          { label: "Yöntem",      value: methodInfo(p.method).label },
+          { label: "Tutar",       value: `₺${fmt(p.amount)}` },
+          { label: "Durum",       value: statusInfo(p.status).label },
+          ...(p.notes ? [{ label: "Notlar", value: p.notes }] : []),
+        ],
+      });
+    }
+
+    return (
+      <div className="max-w-2xl w-full">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between mb-6">
+          <div>
+            <h1 className="font-condensed font-black text-2xl sm:text-3xl uppercase text-gray-800">
+              {p.recipient || typeInfo(p.type).label}
+            </h1>
+            <p className="text-sm text-gray-500 mt-1 break-words">{p.date} · {typeInfo(p.type).label}</p>
+          </div>
+          <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
+            <ExportButtons onExcel={exportDetailExcel} onPdf={exportDetailPDF} />
+            <button
+              onClick={() => openEdit(p)}
+              className="text-sm text-opblue border border-opblue/30 px-4 py-2 rounded-lg hover:bg-opblue/5 w-full sm:w-auto"
+            >
+              Düzenle
+            </button>
+            <button
+              onClick={() => setView("list")}
+              className="text-sm text-gray-500 border border-gray-200 px-4 py-2 rounded-lg hover:bg-gray-50 w-full sm:w-auto"
+            >
+              ← Geri
+            </button>
+          </div>
+        </div>
+
+        <div className="bg-white border border-gray-200 rounded-xl p-4 sm:p-6">
+          <div className="flex items-center gap-2 mb-5">
+            <span className={`text-xs font-bold px-2 py-1 rounded ${typeInfo(p.type).color}`}>
+              {typeInfo(p.type).label}
+            </span>
+            <span className={`text-xs font-bold px-2 py-1 rounded ${statusInfo(p.status).color}`}>
+              {statusInfo(p.status).label}
+            </span>
+          </div>
+
+          <p className="font-condensed font-black text-3xl text-gray-800 mb-6">₺{fmt(p.amount)}</p>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
+            {[
+              { label: "Alıcı / Kurum", value: p.recipient },
+              { label: "Açıklama",      value: p.description },
+              { label: "Referans No",   value: p.refNo },
+              { label: "Vade Tarihi",   value: p.dueDate },
+              { label: "Ödeme Yöntemi", value: methodInfo(p.method).label },
+            ].filter(i => i.value).map(item => (
+              <div key={item.label}>
+                <p className="text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-1">{item.label}</p>
+                <p className="text-gray-700 break-words">{item.value}</p>
+              </div>
+            ))}
+            {p.notes && (
+              <div className="sm:col-span-2">
+                <p className="text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-1">Notlar</p>
+                <p className="text-gray-500 break-words">{p.notes}</p>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   // ── LİSTE ─────────────────────────────────────────
   return (
     <div>
@@ -350,12 +498,15 @@ export default function Payments() {
           <h1 className="font-condensed font-black text-2xl sm:text-3xl uppercase text-gray-800">Ödemeler</h1>
           <p className="text-sm text-gray-500 mt-1">{payments.length} kayıt</p>
         </div>
-        <button
-          onClick={openNew}
-          className="bg-opblue text-white text-sm font-semibold px-4 py-2.5 rounded-lg hover:opacity-90 w-full sm:w-auto"
-        >
-          + Yeni Ödeme
-        </button>
+        <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
+          <ExportButtons onExcel={exportExcel} onPdf={exportPDF} />
+          <button
+            onClick={openNew}
+            className="bg-opblue text-white text-sm font-semibold px-4 py-2.5 rounded-lg hover:opacity-90 w-full sm:w-auto"
+          >
+            + Yeni Ödeme
+          </button>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
@@ -476,13 +627,21 @@ export default function Payments() {
                       ))}
                     </select>
                   </td>
-                  <td className="px-4 py-3 text-right whitespace-nowrap">
-                    <button
-                      onClick={() => openEdit(p)}
-                      className="text-xs text-opblue font-semibold hover:underline"
-                    >
-                      Düzenle
-                    </button>
+                  <td className="px-4 py-3 text-right">
+                    <div className="flex justify-end gap-2 whitespace-nowrap">
+                      <button
+                        onClick={() => openDetail(p)}
+                        className="text-xs text-opblue font-semibold hover:underline"
+                      >
+                        Detay
+                      </button>
+                      <button
+                        onClick={() => openEdit(p)}
+                        className="text-xs text-gray-400 font-semibold hover:underline"
+                      >
+                        Düzenle
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}

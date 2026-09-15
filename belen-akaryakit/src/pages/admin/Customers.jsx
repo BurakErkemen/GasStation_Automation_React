@@ -5,6 +5,8 @@ import {
   query, orderBy
 } from "firebase/firestore";
 import { db } from "../../lib/firebase";
+import { exportListToExcel, printListAsPDF, exportWorkbookToExcel, printDocument } from "../../utils/listExport";
+import ExportButtons from "../../components/admin/ExportButtons";
 
 // ── Yardımcı bileşenler ───────────────────────────────
 function Field({ label, children }) {
@@ -156,6 +158,40 @@ export default function Customers() {
     c.plate?.toLowerCase().includes(search.toLowerCase())
   );
 
+  const fmt = (n) => Number(n || 0).toLocaleString("tr-TR", { minimumFractionDigits: 2 });
+
+  function exportExcel() {
+    exportListToExcel("Musteriler_Veresiye", "Müşteriler", [
+      { header: "Ad Soyad",             value: c => c.name,                                width: 24 },
+      { header: "Telefon",              value: c => c.phone || "—",                        width: 16 },
+      { header: "Plaka",                value: c => c.plate || "—",                        width: 14 },
+      { header: "Toplam Veresiye (₺)",  value: c => getCustomerStats(c.id).totalDebt,      width: 18 },
+      { header: "Toplam Tahsilat (₺)",  value: c => getCustomerStats(c.id).totalCollected, width: 18 },
+      { header: "Bakiye (₺)",           value: c => getCustomerStats(c.id).balance,        width: 14 },
+    ], filtered);
+  }
+
+  function exportPDF() {
+    const totalBalance = filtered.reduce((s, c) => s + getCustomerStats(c.id).balance, 0);
+    printListAsPDF({
+      title: "Müşteriler — Veresiye ve Ödeme Durumu",
+      subtitle: search ? `Arama: "${search}"` : undefined,
+      columns: [
+        { header: "Ad Soyad",       value: c => c.name },
+        { header: "Telefon",        value: c => c.phone || "—" },
+        { header: "Plaka",          value: c => c.plate || "—" },
+        { header: "Veresiye (₺)",   value: c => fmt(getCustomerStats(c.id).totalDebt),      align: "right" },
+        { header: "Tahsilat (₺)",   value: c => fmt(getCustomerStats(c.id).totalCollected), align: "right" },
+        { header: "Bakiye (₺)",     value: c => fmt(getCustomerStats(c.id).balance),        align: "right" },
+      ],
+      rows: filtered,
+      summary: [
+        { value: "TOPLAM" }, { value: "" }, { value: "" }, { value: "" }, { value: "" },
+        { value: `₺${fmt(totalBalance)}`, align: "right" },
+      ],
+    });
+  }
+
   // ── FORM görünümü ─────────────────────────────────
   if (view === "form") {
     return (
@@ -273,6 +309,46 @@ export default function Customers() {
 
     const { credits, collections, totalDebt, totalCollected, balance } = getCustomerStats(detailId);
 
+    const creditColumns = [
+      { header: "Tarih",   value: c => c.date,                       width: 12 },
+      { header: "Vardiya", value: c => c.period,                     width: 10 },
+      { header: "Fiş No",  value: c => c.fisNo || "—",                width: 12 },
+      { header: "Litre",   value: c => c.liters || "—",               width: 10, align: "right" },
+      { header: "Tutar (₺)", value: c => Number(c.amount) || 0,       width: 14, align: "right" },
+      { header: "Not",     value: c => c.note || "—",                 width: 24 },
+    ];
+    const collectionColumns = [
+      { header: "Tarih",   value: c => c.date,                        width: 12 },
+      { header: "Vardiya", value: c => c.period,                      width: 10 },
+      { header: "Fiş No",  value: c => c.fisNo || "—",                 width: 12 },
+      { header: "Tutar (₺)", value: c => Number(c.amount) || 0,        width: 14, align: "right" },
+      { header: "Yöntem",  value: c => c.method === "cash" ? "Nakit" : "Kredi Kartı", width: 14 },
+      { header: "Not",     value: c => c.note || "—",                  width: 24 },
+    ];
+
+    function exportDetailExcel() {
+      exportWorkbookToExcel(`Musteri_${customer.name}`, [
+        { name: "Veresiye", columns: creditColumns, rows: credits },
+        { name: "Tahsilat", columns: collectionColumns, rows: collections },
+      ]);
+    }
+
+    function exportDetailPDF() {
+      printDocument({
+        title: `Müşteri: ${customer.name}`,
+        subtitle: [customer.phone, customer.plate].filter(Boolean).join(" · ") || undefined,
+        info: [
+          { label: "Toplam Veresiye", value: `₺${fmt(totalDebt)}` },
+          { label: "Toplam Tahsilat", value: `₺${fmt(totalCollected)}` },
+          { label: "Bakiye",          value: `₺${fmt(balance)}` },
+        ],
+        sections: [
+          { heading: "Veresiye Geçmişi", columns: creditColumns.map(c => ({ ...c, value: row => typeof c.value(row) === "number" ? fmt(c.value(row)) : c.value(row) })), rows: credits },
+          { heading: "Tahsilat Geçmişi", columns: collectionColumns.map(c => ({ ...c, value: row => typeof c.value(row) === "number" ? fmt(c.value(row)) : c.value(row) })), rows: collections },
+        ],
+      });
+    }
+
     return (
       <div className="max-w-3xl w-full">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between mb-6">
@@ -286,6 +362,7 @@ export default function Customers() {
           </div>
 
           <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
+            <ExportButtons onExcel={exportDetailExcel} onPdf={exportDetailPDF} />
             <button
               onClick={() => openEdit(customer)}
               className="text-sm text-opblue border border-opblue/30 px-4 py-2 rounded-lg hover:bg-opblue/5 w-full sm:w-auto"
@@ -486,12 +563,15 @@ export default function Customers() {
           <p className="text-sm text-gray-500 mt-1">{customers.length} kayıtlı müşteri</p>
         </div>
 
-        <button
-          onClick={openNew}
-          className="bg-opblue text-white text-sm font-semibold px-4 py-2.5 rounded-lg hover:opacity-90 transition-opacity w-full sm:w-auto"
-        >
-          + Yeni Müşteri
-        </button>
+        <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
+          <ExportButtons onExcel={exportExcel} onPdf={exportPDF} />
+          <button
+            onClick={openNew}
+            className="bg-opblue text-white text-sm font-semibold px-4 py-2.5 rounded-lg hover:opacity-90 transition-opacity w-full sm:w-auto"
+          >
+            + Yeni Müşteri
+          </button>
+        </div>
       </div>
 
       {/* Arama */}

@@ -40,17 +40,19 @@ export default function FuelPrices() {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        {fuelPrices.cards.map(({ key, label, bar, dot }) => (
+      <div className="flex flex-wrap justify-center gap-3">
+        {fuelPrices.cards
+          .filter(({ key }) => loading || prices?.[key] != null)
+          .map(({ key, label, bar, dot }) => (
           <div key={key}
-            className="bg-[#0D1B30] border border-white/7 rounded-xl pt-5 px-4 pb-4 md:pt-6 md:px-5 md:pb-5 relative overflow-hidden hover:border-white/15 transition-colors">
+            className="w-[calc(50%-0.375rem)] md:w-[calc(25%-0.5625rem)] bg-[#0D1B30] border border-white/7 rounded-xl pt-5 px-4 pb-4 md:pt-6 md:px-5 md:pb-5 relative overflow-hidden hover:border-white/15 transition-colors">
             <div className={`absolute top-0 inset-x-0 h-[3px] ${bar} rounded-t-xl`} />
             <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-widest text-white/38 mb-3">
               <span className={`w-1.5 h-1.5 rounded-full ${dot}`} />
               {label}
             </div>
             <p className="font-condensed font-black text-4xl md:text-5xl text-white leading-none tracking-tight mb-1">
-              {loading ? "..." : (prices?.[key] != null ? `₺${Number(prices[key]).toFixed(2)}` : "—")}
+              {loading ? "..." : `₺${Number(prices[key]).toFixed(2)}`}
             </p>
             <p className="text-[11px] text-white/22 tracking-wide">₺ / Litre · KDV dahil</p>
 

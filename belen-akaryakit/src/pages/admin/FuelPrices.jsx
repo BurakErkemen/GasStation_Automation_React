@@ -64,22 +64,32 @@ export default function AdminFuelPrices() {
   }
 
 async function handleSave() {
-  const isInvalid = FUELS.some(f => !form[f.key] || isNaN(form[f.key]) || Number(form[f.key]) <= 0);
+  // Alan boş bırakılabilir (null = ana sayfada gösterilmez); doluysa geçerli bir sayı olmalı.
+  const isInvalid = FUELS.some(f => {
+    const v = form[f.key];
+    if (v === "" || v == null) return false;
+    return isNaN(v) || Number(v) <= 0;
+  });
   if (isInvalid) {
-    alert("Lütfen tüm yakıt türleri için geçerli bir fiyat girin.");
+    alert("Girdiğiniz fiyatlar 0'dan büyük bir sayı olmalı. Boş bırakılan alanlar ana sayfada gösterilmez.");
     return;
   }
+
+  const toPrice = v => (v === "" || v == null ? null : Number(v));
 
   setSaving(true);
   setSaved(false);
   try {
     await setDoc(doc(db, "settings", "fuelPrices"), {
-      ...form,
+      benzin:     toPrice(form.benzin),
+      dizel:      toPrice(form.dizel),
+      eurodiesel: toPrice(form.eurodiesel),
+      lpg:        toPrice(form.lpg),
       previousPrices: {         // eski fiyatları sakla
-        benzin:     prev.benzin,
-        dizel:      prev.dizel,
-        eurodiesel: prev.eurodiesel,
-        lpg:        prev.lpg,
+        benzin:     toPrice(prev.benzin),
+        dizel:      toPrice(prev.dizel),
+        eurodiesel: toPrice(prev.eurodiesel),
+        lpg:        toPrice(prev.lpg),
       },
       updatedAt: serverTimestamp(),
     });

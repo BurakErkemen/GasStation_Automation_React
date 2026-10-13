@@ -39,11 +39,26 @@ export default function LoginPage() {
     setLoading(true);
 
     try {
-      await login(email, password);
+      await login(email.trim(), password);
       setAttempts(0);
       setLockUntil(null);
       navigate("/admin");
     } catch (err) {
+      const code = err?.code || "auth/unknown";
+      console.error("Firebase giriş hatası:", code);
+      const credentialErrors = ["auth/invalid-credential", "auth/invalid-login-credentials", "auth/wrong-password", "auth/user-not-found", "auth/invalid-email"];
+      if (!credentialErrors.includes(code)) {
+        const messages = {
+          "auth/operation-not-allowed": "Firebase'de e-posta/şifre girişi etkin değil. Authentication → Sign-in method ayarını kontrol edin.",
+          "auth/user-disabled": "Bu kullanıcı hesabı devre dışı bırakılmış.",
+          "auth/too-many-requests": "Firebase çok fazla giriş denemesi nedeniyle erişimi geçici olarak durdurdu. Bir süre sonra tekrar deneyin.",
+          "auth/network-request-failed": "Firebase bağlantısı kurulamadı. İnternet bağlantısını kontrol edin.",
+          "auth/invalid-api-key": "Firebase API anahtarı geçersiz. Proje yapılandırmasını kontrol edin.",
+          "auth/api-key-not-valid.-please-pass-a-valid-api-key.": "Firebase API anahtarı geçersiz. Proje yapılandırmasını kontrol edin.",
+        };
+        setError(`${messages[code] || "Firebase girişi tamamlanamadı."} (${code})`);
+        return;
+      }
       const newAttempts = attempts + 1;
       setAttempts(newAttempts);
 
@@ -52,7 +67,7 @@ export default function LoginPage() {
         setLockUntil(until);
         setError(`${MAX_ATTEMPTS} başarısız deneme. 5 dakika beklemeniz gerekiyor.`);
       } else {
-        setError(`E-posta veya şifre hatalı. (${newAttempts}/${MAX_ATTEMPTS} deneme)`);
+        setError(`E-posta veya şifre hatalı. (${newAttempts}/${MAX_ATTEMPTS} deneme · ${code})`);
       }
     } finally {
       setLoading(false);

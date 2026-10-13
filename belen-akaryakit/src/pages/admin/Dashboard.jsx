@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { collection, getDocs, query, orderBy, where } from "firebase/firestore";
 import { db } from "../../lib/firebase";
 import { useNavigate } from "react-router-dom";
+import { cardSummary, cardRowSummary } from "../../utils/cardSummary";
 
 function StatCard({ label, value, sub, color = "text-opblue", onClick }) {
   return (
@@ -67,6 +68,17 @@ export default function Dashboard() {
   const monthShifts   = shifts.filter(s => s.date?.startsWith(thisMonth));
   const monthRevenue  = monthShifts.reduce((s, sh) => s + (Number(sh.summary?.fuelTotal) || 0), 0);
   const monthCashDiff = monthShifts.reduce((s, sh) => s + (Number(sh.summary?.cashDiff) || 0), 0);
+  const monthCards = monthShifts.reduce((sum, shift) => {
+    const cards = cardSummary(shift);
+    return { gross: sum.gross + cards.gross, fee: sum.fee + cards.fee, net: sum.net + cards.net, legacy: sum.legacy + (cards.legacy && cards.gross > 0 ? 1 : 0) };
+  }, { gross: 0, fee: 0, net: 0, legacy: 0 });
+  const bankTotals = new Map();
+  monthShifts.forEach(shift => (shift.cardPayments || []).forEach(row => {
+    const key = row.agreementId;
+    const current = bankTotals.get(key) || { name: `${row.bankName} · ${row.company || ""}`, gross: 0, fee: 0, net: 0 };
+    const values = cardRowSummary(row);
+    bankTotals.set(key, { ...current, gross: current.gross + values.gross, fee: current.fee + values.fee, net: current.net + values.net });
+  }));
 
   // Müşteri istatistikleri — veresiye bakiye
   function getBalance(customerId) {
@@ -103,6 +115,21 @@ export default function Dashboard() {
         </p>
       </div>
 
+      <div className="bg-white border border-gray-200 rounded-xl p-5 mb-6">
+        <SectionTitle>Bu Ay Banka / Kart Özeti</SectionTitle>
+        <div className="grid sm:grid-cols-3 gap-4 mb-4">
+          <StatCard label="POS Brüt" value={`₺${fmt(monthCards.gross)}`} />
+          <StatCard label="Banka Kesintisi" value={`₺${fmt(monthCards.fee)}`} color="text-red-500" />
+          <StatCard label="Net Banka" value={`₺${fmt(monthCards.net)}`} color="text-green-600" />
+        </div>
+        <p className="text-xs text-gray-500 mb-3">Komisyon gideri, POS gün sonu tutarı ve vardiyada kayıtlı anlaşma oranından hesaplanır.</p>
+        {monthCards.legacy > 0 && <p className="text-xs text-orange mb-3">{monthCards.legacy} eski vardiyada banka kırılımı bulunmuyor; bu kayıtların kesintisi bilinmiyor ve net toplam kesinti düşülmeden gösteriliyor.</p>}
+        <div className="overflow-x-auto"><table className="w-full text-sm"><thead><tr className="text-left"><th>Banka / Firma</th><th>Brüt</th><th>Kesinti</th><th>Net</th></tr></thead><tbody>
+          {[...bankTotals].map(([key, bank]) => <tr key={key} className="border-t border-gray-100"><td className="py-3">{bank.name}</td><td>₺{fmt(bank.gross)}</td><td>₺{fmt(bank.fee)}</td><td>₺{fmt(bank.net)}</td></tr>)}
+        </tbody></table></div>
+        {bankTotals.size === 0 && <p className="text-gray-400 text-sm my-3">Bu ay banka kırılımı kaydedilmemiş.</p>}
+        <button onClick={() => navigate("/admin/banks")} className="text-opblue text-sm mt-3">Banka İşlemleri →</button>
+      </div>
       {/* ── Üst istatistikler ── */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
         <StatCard

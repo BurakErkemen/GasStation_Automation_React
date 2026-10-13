@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider } from "./context/AuthContext";
 import ProtectedRoute from "./components/auth/ProtectedRoute";
 
@@ -15,6 +15,7 @@ import LoginPage    from "./pages/LoginPage";
 import AdminLayout  from "./pages/admin/AdminLayout";
 import Dashboard    from "./pages/admin/Dashboard";
 import Shifts from "./pages/admin/Shifts";
+import MarketShifts from "./pages/admin/MarketShifts";
 import AdminContact from "./pages/admin/Contact";
 import SiteContent from "./pages/admin/SiteContent";
 import Customers from "./pages/admin/Customers";
@@ -23,6 +24,9 @@ import Employees from "./pages/admin/Employees";
 import Invoices from "./pages/admin/Invoices";
 import Payments from "./pages/admin/Payments";
 import Suppliers from "./pages/admin/Suppliers";
+
+import CardInfo from "./pages/admin/CardInfo";
+import SiteSettings from "./pages/admin/SiteSettings";
 
 function HomePage() {
   return (
@@ -56,11 +60,20 @@ export default function App() {
           <Route path="/admin/login" element={<LoginPage />} />
           <Route path="/admin" element={<AdminRoutes />}>
             <Route index element={<Dashboard />} />
+            <Route path="banks" element={<CardInfo />} />
+            <Route path="cards" element={<Navigate to="/admin/banks" replace />} />
+            <Route path="settings" element={<SiteSettings />}>
+              <Route index element={<Navigate to="fuel" replace />} />
+              <Route path="fuel" element={<AdminFuelPrices />} />
+              <Route path="content" element={<SiteContent />} />
+              <Route path="contact" element={<AdminContact />} />
+            </Route>
             <Route path="shifts" element={<Shifts />} />
-            <Route path="contact" element={<AdminContact />} />
-            <Route path="content" element={<SiteContent />} />
+            <Route path="market-shifts" element={<MarketShifts />} />
+            <Route path="contact" element={<Navigate to="/admin/settings/contact" replace />} />
+            <Route path="content" element={<Navigate to="/admin/settings/content" replace />} />
             <Route path="customers" element={<Customers />} />
-            <Route path="fuel" element={<AdminFuelPrices />} />
+            <Route path="fuel" element={<Navigate to="/admin/settings/fuel" replace />} />
             <Route path="employees" element={<Employees />} />
             <Route path="invoices" element={<Invoices />} />
             <Route path="payments" element={<Payments />} />

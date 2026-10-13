@@ -1,9 +1,17 @@
+import { cardSummary, cardRowSummary } from "./cardSummary";
+
 export function printShift(shift, employees, summary) {
   const empNames = (shift.employees || [])
     .map(id => employees.find(e => e.id === id)?.name || id)
     .join(", ");
 
   const fmt = (n) => Number(n || 0).toLocaleString("tr-TR", { minimumFractionDigits: 2 });
+  const escape = value => String(value ?? "").replace(/[&<>"']/g, char => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[char]));
+  const cards = cardSummary(shift);
+  const bankRows = (shift.cardPayments || []).map(row => {
+    const totals = cardRowSummary(row);
+    return `<tr><td>${escape(row.bankName)} / ${escape(row.company)}</td><td>%${escape(row.commissionRate)}</td><td>₺${fmt(totals.gross)}</td><td>₺${fmt(totals.fee)}</td><td>₺${fmt(totals.net)}</td></tr>`;
+  }).join("");
 
   const fuelRows = ["benzin", "dizel", "eurodiesel", "lpg"].map(f => `
     <tr>
@@ -144,6 +152,11 @@ export function printShift(shift, employees, summary) {
       </div>
 
       <div class="grid2">
+        <div class="section">
+          <div class="section-title">Banka / Kart Kırılımı</div>
+          <table><thead><tr><th>Banka / Firma</th><th>Oran</th><th>Brüt</th><th>Kesinti</th><th>Net</th></tr></thead><tbody>${bankRows}</tbody></table>
+          <p>Kesinti: ${cards.legacy ? "Bilinmiyor (eski kayıt)" : `₺${fmt(cards.fee)}`} · Net: ₺${fmt(cards.net)}</p>
+        </div>
         <!-- Yakıt Satışları -->
         <div class="section">
           <div class="section-title">Yakıt Satışları</div>

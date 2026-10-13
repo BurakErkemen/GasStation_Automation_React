@@ -6,6 +6,7 @@ import {
 import { db } from "../../lib/firebase";
 import { exportShiftToExcel } from "../../utils/shiftExport";
 import { printShift } from "../../utils/shiftPrint";
+import { cardSummary } from "../../utils/cardSummary";
 
 const PERIODS = ["00-08", "08-16", "16-24"];
 const FUELS = ["benzin", "dizel", "eurodiesel", "lpg"];
@@ -27,7 +28,8 @@ function calcSummary(shift) {
     0
   );
 
-  const totalPosReport = Number(shift.sales?.card) || 0;
+  const cards = cardSummary(shift);
+  const totalPosReport = cards.gross;
 
   const collectedCard = (shift.debtCollections || [])
     .filter(c => c.method === "card")
@@ -73,11 +75,14 @@ function calcSummary(shift) {
     closing,
     expectedCash,
     cashDiff,
-    expectedBank
+    expectedBank,
+    cardCommission: cards.fee,
+    netBank: cards.net
   };
 }
 
 const emptyShift = {
+  cardPayments: [],
   date: new Date().toISOString().split("T")[0],
   period: "08-16",
   status: "open",
@@ -153,6 +158,13 @@ export default function Shifts() {
   const [shifts, setShifts] = useState([]);
   const [employees, setEmployees] = useState([]);
   const [customers, setCustomers] = useState([]);
+  const [agreements, setAgreements] = useState([]);
+  const [cardError, setCardError] = useState("");
+  useEffect(() => {
+    getDocs(collection(db, "cardAgreements"))
+      .then(snap => setAgreements(snap.docs.map(d => ({ ...d.data(), id: d.id }))))
+      .catch(() => setCardError("Banka anlaşmaları yüklenemedi."));
+  }, []);
   const [view, setView] = useState("list");
   const [form, setForm] = useState(emptyShift);
   const [editId, setEditId] = useState(null);
@@ -191,10 +203,19 @@ export default function Shifts() {
       return;
     }
 
+    if ((form.cardPayments || []).some(row => !row.agreementId || !Number.isFinite(Number(row.amount)) || Number(row.amount) < 0 || row.amount === "")) {
+      alert("POS satırlarında banka seçin ve geçerli gün sonu tutarı girin.");
+      return;
+    }
+    if (cardSummary(form).gross < (form.debtCollections || []).filter(c => c.method === "card").reduce((total, c) => total + (Number(c.amount) || 0), 0)) {
+      alert("POS toplamı kartla borç tahsilatından az olamaz.");
+      return;
+    }
     setSaving(true);
     const finalSummary = calcSummary(form);
     const payload = {
       ...form,
+      sales: { ...form.sales, card: finalSummary.cardSales },
       summary: finalSummary,
       updatedAt: serverTimestamp()
     };
@@ -238,6 +259,7 @@ export default function Shifts() {
   function addRow(arrPath, template) {
     setForm(prev => {
       const next = structuredClone(prev);
+      if (arrPath[0] === "cardPayments") next.cardPayments ||= [];
       const arr = arrPath.reduce((o, k) => o[k], next);
       arr.push({ ...template });
       return next;
@@ -249,6 +271,7 @@ export default function Shifts() {
       const next = structuredClone(prev);
       const arr = arrPath.reduce((o, k) => o[k], next);
       arr.splice(idx, 1);
+      if (arrPath[0] === "cardPayments" && arr.length === 0) next.sales.card = "0";
       return next;
     });
   }
@@ -499,11 +522,12 @@ export default function Shifts() {
               <p className="text-[9px] text-gray-400">Pompa - (Kart + Veresiye + Otobil)</p>
             </div>
 
-            <Field label="Kredi Kartı Satış (₺)">
+            <Field label="POS Toplamı (₺)">
               <Input
                 type="number"
-                placeholder="Sadece Yakıt Slipleri"
-                value={form.sales.card}
+                disabled={(form.cardPayments || []).length > 0}
+                placeholder="Yakıt + kartla borç tahsilatı"
+                value={(form.cardPayments || []).length ? summary?.cardSales ?? 0 : form.sales.card}
                 onChange={e => sf(["sales", "card"], e.target.value)}
               />
             </Field>
@@ -517,6 +541,24 @@ export default function Shifts() {
             </div>
           </div>
 
+          <SectionTitle>POS Gün Sonu</SectionTitle>
+          <p className="text-xs text-gray-500 mb-3">Banka seçip POS gün sonu tutarını girin. Kartla borç tahsilatı bu tutara dahildir.</p>
+          {cardError && <p role="alert" className="text-red-600">{cardError}</p>}
+          {(form.cardPayments || []).map((row, i) => {
+            return <div key={i} className="border border-gray-200 rounded-lg p-3 mb-3 grid sm:grid-cols-2 gap-3">
+              <Field label="Banka / Anlaşma"><select className="border rounded-lg p-2 w-full" value={row.agreementId} onChange={e => {
+                const a = agreements.find(item => item.id === e.target.value);
+                if (!a) return;
+                setForm(prev => ({ ...prev, cardPayments: prev.cardPayments.map((r, index) => index === i ? { ...r, agreementId: a.id, bankName: a.bankName, company: a.company || "", agreement: a.agreement || "", commissionRate: a.commissionRate, settlementDays: a.settlementDays || 0 } : r) }));
+              }}>
+                <option value="">Banka seçin</option>
+                {row.agreementId && <option value={row.agreementId}>{row.bankName} · {row.company} (kayıtlı koşullar)</option>}
+                {agreements.filter(a => a.active && a.id !== row.agreementId).map(a => <option key={a.id} value={a.id}>{a.bankName} · {a.company} · %{a.commissionRate}</option>)}
+              </select></Field>
+              <Field label="POS Gün Sonu (₺)"><div className="flex gap-2"><Input type="number" min="0" step="0.01" value={row.amount} onChange={e => updateRow(["cardPayments"], i, "amount", e.target.value)} /><RemoveBtn onClick={() => removeRow(["cardPayments"], i)} /></div></Field>
+            </div>;
+          })}
+          <AddRowBtn label="Banka / POS Ekle" onClick={() => addRow(["cardPayments"], { agreementId: "", bankName: "", company: "", agreement: "", commissionRate: 0, settlementDays: 0, amount: "" })} />
           <p className="text-xs font-bold uppercase tracking-widest text-gray-400 mb-2">
             Otobil Satışları
           </p>

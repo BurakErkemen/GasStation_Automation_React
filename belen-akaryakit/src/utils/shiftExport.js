@@ -1,10 +1,20 @@
 import * as XLSX from "xlsx";
+import { cardSummary, cardRowSummary } from "./cardSummary";
 
 const fmt = (n) => Number(n || 0).toLocaleString("tr-TR", { minimumFractionDigits: 2 });
 
 export function exportShiftToExcel(shift, employees) {
   const wb = XLSX.utils.book_new();
   const sum = shift.summary || {};
+  const cards = cardSummary(shift);
+  const bankRows = [["Banka", "Firma", "Komisyon (%)", "Brüt (₺)", "Kesinti (₺)", "Net (₺)", "Kesinti Kaynağı", "Valör (gün)", "Anlaşma"],
+    ...(shift.cardPayments || []).map(row => {
+      const totals = cardRowSummary(row);
+      return [row.bankName, row.company, row.commissionRate, totals.gross, totals.fee, totals.net, "Anlaşma oranı", row.settlementDays, row.agreement];
+    })];
+  const wsBanks = XLSX.utils.aoa_to_sheet(bankRows);
+  wsBanks["!cols"] = [24, 24, 16, 18, 18, 18, 18, 16, 45].map(wch => ({ wch }));
+  XLSX.utils.book_append_sheet(wb, wsBanks, "Banka Kart Kırılımı");
 
   const empNames = (shift.employees || [])
     .map(id => employees.find(e => e.id === id)?.name || id)
@@ -38,6 +48,8 @@ export function exportShiftToExcel(shift, employees) {
     [],
     ["── YAKLAŞIK BANKA ──"],
     ["Beklenen Banka (₺)",    sum.expectedBank || 0],
+    ["Banka Kesintisi (₺)", cards.legacy ? "Bilinmiyor" : cards.fee],
+    ["Net Banka (₺)", cards.net],
   ];
 
   const wsOzet = XLSX.utils.aoa_to_sheet(ozet);

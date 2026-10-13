@@ -3,11 +3,11 @@ import { NavLink, Outlet, useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
 
 const navItems = [
+  { label: "Site Ayarları", href: "/admin/settings", icon: "⚙️" },
+  { label: "Banka İşlemleri", href: "/admin/banks", icon: "🏦" },
   { label: "Dashboard",         href: "/admin",               icon: "▦" },
-  { label: "Yakıt Fiyatları",   href: "/admin/fuel",          icon: "⛽" },
-  { label: "Site İçeriği",      href: "/admin/content",       icon: "✏️" },
-  { label: "İletişim & Harita", href: "/admin/contact",       icon: "📍" },
   { label: "Vardiyalar",        href: "/admin/shifts",        icon: "🕐" },
+  { label: "Market Vardiyaları", href: "/admin/market-shifts", icon: "🛒" },
   { label: "Müşteriler",        href: "/admin/customers",     icon: "👥" },
   { label: "Çalışanlar",        href: "/admin/employees",     icon: "👤" },
   { label: "Faturalar",         href: "/admin/invoices",      icon: "🧾" },
